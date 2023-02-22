@@ -12,6 +12,7 @@ services:
             args:
                 GITLAB_TOKEN: ''
         environment:
+            PHP_CS_FIXER_IGNORE_ENV: 1
             APP_ENV : dev
         volumes:
             - "./:/srv/app/"
