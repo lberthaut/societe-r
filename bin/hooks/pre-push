@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+echo "Running pre-push hook"
+
+GIT_DIR=$(git rev-parse --git-dir)
+
+cd "$GIT_DIR"/.. || exit
+
+make doctrine-validate
+
+# $? stores exit value of the last command
+if [ $? -ne 0 ]; then
+ echo "doctrine schema validate check failed, fix it before push"
+ exit 1
+fi
+
+make stan
+
+# $? stores exit value of the last command
+if [ $? -ne 0 ]; then
+ echo "Phpstan check failed, fix it before push"
+ exit 1
+fi
+
+make cs-dry
+
+# $? stores exit value of the last command
+if [ $? -ne 0 ]; then
+ make cs-fix
+ echo "php-cs fixer failed, fix it before push"
+ exit 1
+fi
+
+make test-report
+
+# $? stores exit value of the last command
+if [ $? -ne 0 ]; then
+ echo "Tests must pass before push!"
+ exit 1
+fi

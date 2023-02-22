@@ -1,0 +1,118 @@
+image: $CI_REGISTRY_IMAGE:pipeline
+
+before_script:
+  - symfony composer install --no-scripts
+
+cache:
+  paths:
+    - vendor
+
+stages:
+  - security
+  - quality
+  - tests
+  - build
+  - deploy
+
+phpstan:
+  stage: quality
+  needs: []
+  script:
+    - make stan
+  allow_failure: true
+
+check_vulnerabilities:
+  stage: security
+  needs: []
+  script :
+    - symfony check:security
+
+php-cs-fixer:
+  stage: quality
+  needs: []
+  script:
+    - make cs-dry
+  allow_failure: true
+
+lint:
+  stage: quality
+  needs: []
+  script :
+    - symfony console lint:yaml config --parse-tags
+    - symfony console lint:twig templates --env=prod
+    - symfony console lint:container --no-debug
+    - symfony console doctrine:schema:validate --skip-sync -vvv -n
+
+phpunit:
+  stage: tests
+  needs: []
+  services :
+    - postgres:13-alpine
+  variables :
+    POSTGRES_DB: app
+    POSTGRES_USER: symfony
+    POSTGRES_PASSWORD: symfony
+    POSTGRES_HOST_AUTH_METHOD: trust
+    DB_HOST: postgres
+    #DATABASE_URL: "postgresql://symfony:symfony@postgres:5432/app?serverVersion=13&charset=utf8"
+  script:
+    - make test-report
+  allow_failure: false
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+
+.build:
+  image : docker
+  services :
+    - docker:dind
+  needs:
+    - phpunit
+    - lint
+    - php-cs-fixer
+    - check_vulnerabilities
+    - phpstan
+  only :
+    - main
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: "tcp://docker:2375/"
+  stage: build
+  allow_failure: false
+  before_script :
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+build_app:
+  extends : .build
+  script :
+    - docker pull $CI_REGISTRY_IMAGE/app:latest || true
+    - docker build --cache-from $CI_REGISTRY_IMAGE/app:latest -t $CI_REGISTRY_IMAGE/app:latest -t $CI_REGISTRY_IMAGE/app:$CI_PIPELINE_IID --target app --build-arg GITLAB_TOKEN=$CI_JOB_TOKEN --build-arg GIT_BRANCH=$CI_COMMIT_BRANCH ./
+    - docker push $CI_REGISTRY_IMAGE/app -a
+
+build_nginx:
+  extends : .build
+  script :
+    - docker pull $CI_REGISTRY_IMAGE/nginx:latest || true
+    - docker build --cache-from $CI_REGISTRY_IMAGE/nginx:latest -t $CI_REGISTRY_IMAGE/nginx:latest -t $CI_REGISTRY_IMAGE/nginx:$CI_PIPELINE_IID --target nginx --build-arg GITLAB_TOKEN=$CI_JOB_TOKEN --build-arg GIT_BRANCH=$CI_COMMIT_BRANCH ./
+    - docker push $CI_REGISTRY_IMAGE/nginx -a
+
+deploy_production:
+  image : alpine
+  needs :
+    - build_app
+    - build_nginx
+  stage: deploy
+  only :
+    - main
+  before_script :
+    - apk add --no-cache openssh-client ca-certificates bash
+  script:
+    - mkdir -p -m 700 ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+    - ssh $SSH_HOST "cd /var/www/formation-ri7/2022-06-societe-r && git fetch --all && git checkout $CI_COMMIT_BRANCH && git pull origin $CI_COMMIT_BRANCH && make pull-up USER=$CI_REGISTRY_USER TOKEN=$CI_REGISTRY_PASSWORD"
+
+  environment:
+    name: production
+    url: https://societe-r.techndcall.com

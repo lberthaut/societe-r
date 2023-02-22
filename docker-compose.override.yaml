@@ -1,0 +1,27 @@
+version: '3'
+
+services:
+  app:
+    image: ${PROJECT_NAME}-app:latest
+    build:
+      context: .
+      target: app
+      args:
+        GITLAB_TOKEN: ''
+    environment:
+      APP_ENV : dev
+    volumes:
+      - "./:/srv/app/"
+
+  nginx:
+    image: ${PROJECT_NAME}-nginx:latest
+    volumes:
+        - "./:/srv/app/"
+    build:
+        context: .
+        target: nginx
+###> doctrine/doctrine-bundle ###
+  database:
+    ports:
+      - "5432"
+###< doctrine/doctrine-bundle ###

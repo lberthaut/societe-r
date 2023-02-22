@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+rm -f .git/hooks/pre-push
+
+echo "Installing hooks..."
+# this command creates symlink to our pre-push script
+ln -s ../../bin/hooks/pre-push .git/hooks/pre-push
+chmod a+x .git/hooks/pre-push
+
+echo "Done"!
