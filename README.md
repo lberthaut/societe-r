@@ -37,3 +37,6 @@ services:
 
 2. launch command `make build-up` to up project
 3. Go to `http://localhost:8020`
+
+# MCD
+![MCD](public/img/mcd.png)
